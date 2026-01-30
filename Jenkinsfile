@@ -1,5 +1,8 @@
 pipeline {
   agent any
+  tools {
+    nodejs 'node-7.8.0'
+  }
 
   environment {
     // branch name in multibranch: main/dev
