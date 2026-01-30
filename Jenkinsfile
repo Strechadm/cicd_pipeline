@@ -10,6 +10,7 @@ pipeline {
     PORT = "${env.BRANCH_NAME == 'main' ? '3000' : '3001'}"
     IMAGE = "${env.BRANCH_NAME == 'main' ? 'nodemain:v1.0' : 'nodedev:v1.0'}"
     CONTAINER = "app_${env.BRANCH_NAME}"
+    PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH}"
   }
 
   stages {
