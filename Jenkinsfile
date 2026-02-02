@@ -1,57 +1,44 @@
 pipeline {
   agent any
-  tools {
-    nodejs 'node-20'
+
+  parameters {
+    string(name: 'IMAGE_TAG', defaultValue: 'v1.0', description: 'Docker image tag')
   }
 
   environment {
-    // branch name in multibranch: main/dev
-    BR = "${env.BRANCH_NAME}"
-    PORT = "${env.BRANCH_NAME == 'main' ? '3000' : '3001'}"
-    IMAGE = "${env.BRANCH_NAME == 'main' ? 'nodemain:v1.0' : 'nodedev:v1.0'}"
-    CONTAINER = "app_${env.BRANCH_NAME}"
-    PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH}"
+    PATH            = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    DOCKER_CREDS_ID = 'docker-hub-creds'
+    DOCKER_REPO     = 'strechadm/cicd-pipeline'
   }
 
   stages {
-    stage('Checkout') {
+    stage('Login & Pull') {
       steps {
-        checkout scm
-        sh 'echo "Branch: $BR"'
+        withCredentials([usernamePassword(credentialsId: env.DOCKER_CREDS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+        }
+        sh "docker pull ${DOCKER_REPO}:dev-${params.IMAGE_TAG}"
       }
     }
 
-    stage('Build') {
+    stage('Stop only DEV container') {
       steps {
-        sh 'chmod +x scripts/build.sh || true'
-        sh './scripts/build.sh || npm install'
+        sh 'docker rm -f node-dev 2>/dev/null || true'
       }
     }
 
-    stage('Test') {
+    stage('Run') {
       steps {
-        sh 'chmod +x scripts/test.sh || true'
-        sh './scripts/test.sh || npm test || true'
+        sh """
+          docker run -d --name node-dev \
+            -p 3001:3000 \
+            ${DOCKER_REPO}:dev-${params.IMAGE_TAG}
+        """
       }
     }
+  }
 
-    stage('Build Docker Image') {
-      steps {
-        sh 'docker version'
-        sh 'docker build -t $IMAGE .'
-      }
-    }
-
-    stage('Deploy') {
-      steps {
-        sh '''
-          set -e
-          echo "Deploying $BR on port $PORT using image $IMAGE"
-          docker rm -f "$CONTAINER" 2>/dev/null || true
-          docker run -d --name "$CONTAINER" -p "$PORT:3000" "$IMAGE"
-          docker ps --filter "name=$CONTAINER"
-        '''
-      }
-    }
+  post {
+    always { sh 'docker logout || true' }
   }
 }
