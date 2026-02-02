@@ -1,5 +1,11 @@
-FROM node:20
+FROM node:20-alpine
+
 WORKDIR /opt
-COPY . /opt
-RUN npm install
+
+COPY package*.json ./
+RUN npm install --production
+
+COPY . .
+
+EXPOSE 3000
 CMD ["npm", "start"]
