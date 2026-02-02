@@ -1,44 +1,77 @@
 pipeline {
   agent any
 
-  parameters {
-    string(name: 'IMAGE_TAG', defaultValue: 'v1.0', description: 'Docker image tag')
-  }
-
   environment {
-    PATH            = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     DOCKER_CREDS_ID = 'docker-hub-creds'
     DOCKER_REPO     = 'strechadm/cicd-pipeline'
+    IMAGE_TAG       = 'v1.0'
   }
 
   stages {
-    stage('Login & Pull') {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Build') {
+      steps {
+        sh 'npm install'
+      }
+    }
+
+    stage('Test') {
+      steps {
+        sh 'npm test'
+      }
+    }
+
+    stage('Docker Build') {
+      steps {
+        script {
+          if (env.BRANCH_NAME == 'main') {
+            env.FULL_IMAGE = "${DOCKER_REPO}:main-${IMAGE_TAG}"
+          } else if (env.BRANCH_NAME == 'dev') {
+            env.FULL_IMAGE = "${DOCKER_REPO}:dev-${IMAGE_TAG}"
+          } else {
+            error("Unsupported branch: ${env.BRANCH_NAME}. Only main/dev are allowed.")
+          }
+
+          sh "docker build -t ${env.FULL_IMAGE} ."
+        }
+      }
+    }
+
+    stage('Docker Login & Push') {
       steps {
         withCredentials([usernamePassword(credentialsId: env.DOCKER_CREDS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+          sh '''
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+          '''
+          sh "docker push ${env.FULL_IMAGE}"
         }
-        sh "docker pull ${DOCKER_REPO}:dev-${params.IMAGE_TAG}"
       }
     }
 
-    stage('Stop only DEV container') {
+    stage('Trigger Deploy Job') {
       steps {
-        sh 'docker rm -f node-dev 2>/dev/null || true'
-      }
-    }
-
-    stage('Run') {
-      steps {
-        sh """
-          docker run -d --name node-dev \
-            -p 3001:3000 \
-            ${DOCKER_REPO}:dev-${params.IMAGE_TAG}
-        """
+        script {
+          if (env.BRANCH_NAME == 'main') {
+            build job: 'Deploy_to_main', parameters: [
+              string(name: 'IMAGE_TAG', value: env.IMAGE_TAG)
+            ]
+          } else if (env.BRANCH_NAME == 'dev') {
+            build job: 'Deploy_to_dev', parameters: [
+              string(name: 'IMAGE_TAG', value: env.IMAGE_TAG)
+            ]
+          }
+        }
       }
     }
   }
 
   post {
-    always { sh 'docker logout || true' }
+    always {
+      sh 'docker logout || true'
+    }
   }
 }
