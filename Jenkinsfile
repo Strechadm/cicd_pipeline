@@ -1,11 +1,11 @@
+@Library('cicd-shared-lib') _
+
 pipeline {
   agent any
 
   environment {
-    PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    DOCKER_CREDS_ID = 'docker-hub-creds'
-    DOCKER_REPO     = 'strechadm/cicd-pipeline'
-    IMAGE_TAG       = 'v1.0'
+    DOCKER_REPO = 'strechadm/cicd-pipeline'
+    IMAGE_TAG   = 'v1.0'
   }
 
   stages {
@@ -13,65 +13,29 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build') {
-      steps {
-        sh 'npm install'
-      }
-    }
-
-    stage('Test') {
-      steps {
-        sh 'npm test'
-      }
-    }
-
-    stage('Docker Build') {
+    stage('CI') {
       steps {
         script {
-          if (env.BRANCH_NAME == 'main') {
-            env.FULL_IMAGE = "${DOCKER_REPO}:main-${IMAGE_TAG}"
-          } else if (env.BRANCH_NAME == 'dev') {
-            env.FULL_IMAGE = "${DOCKER_REPO}:dev-${IMAGE_TAG}"
-          } else {
-            error("Unsupported branch: ${env.BRANCH_NAME}. Only main/dev are allowed.")
+          def image = ciPipeline(
+            dockerRepo: env.DOCKER_REPO,
+            imageTag: env.IMAGE_TAG,
+            dockerCredsId: 'docker-hub-creds'
+          ) { builtImage ->
+            stage('Trigger Deploy') {
+              if (env.BRANCH_NAME == 'main') {
+                build job: 'Deploy_to_main', parameters: [string(name: 'IMAGE_TAG', value: env.IMAGE_TAG)]
+              } else if (env.BRANCH_NAME == 'dev') {
+                build job: 'Deploy_to_dev', parameters: [string(name: 'IMAGE_TAG', value: env.IMAGE_TAG)]
+              }
+            }
           }
-
-          sh "docker build -t ${env.FULL_IMAGE} ."
-        }
-      }
-    }
-
-    stage('Docker Login & Push') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: env.DOCKER_CREDS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          sh '''
-            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-          '''
-          sh "docker push ${env.FULL_IMAGE}"
-        }
-      }
-    }
-
-    stage('Trigger Deploy Job') {
-      steps {
-        script {
-          if (env.BRANCH_NAME == 'main') {
-            build job: 'Deploy_to_main', parameters: [
-              string(name: 'IMAGE_TAG', value: env.IMAGE_TAG)
-            ]
-          } else if (env.BRANCH_NAME == 'dev') {
-            build job: 'Deploy_to_dev', parameters: [
-              string(name: 'IMAGE_TAG', value: env.IMAGE_TAG)
-            ]
-          }
+          echo "Built & pushed image: ${image}"
         }
       }
     }
   }
 
   post {
-    always {
-      sh 'docker logout || true'
-    }
+    always { sh 'docker logout || true' }
   }
 }
