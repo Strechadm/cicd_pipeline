@@ -17,7 +17,7 @@ pipeline {
     stage('CI (SharedLib)') {
       steps {
         script {
-          // ciPipeline має всередині: npm install/test, hadolint, docker login, build+push, trivy scan
+          // ciPipeline npm install/test, hadolint, docker login, build+push, trivy scan
           def builtImage = ciPipeline(
             dockerRepo: env.DOCKER_REPO,
             imageTag: env.IMAGE_TAG,
